@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,106 +17,167 @@ import (
 	"github.com/spf13/viper"
 )
 
-//CheckFlag is struct
+// A variable that stores the value after Unmarshal
+var config Config
+
+// CheckFlag Option parsed by cobra
 type CheckFlag struct {
 	Config string
 }
 
+// Config Unmarshal yaml file
 type Config struct {
-	Notify []Notify `yaml:notify`
+	Notifer []Notifer `mapstructure:"notifier"`
 }
 
-type Notify struct {
-	RoomID    string   `yaml:roomid`
-	Region    string   `yaml:region`
-	Profile   string   `yaml:profile`
-	To        []string `yaml:toport`
-	Instances []string `yaml:instances`
+// Notifer is a notification notifier
+type Notifer struct {
+	Notification string            `mapstructure:"notification"`
+	Region       string            `mapstructure:"region"`
+	Profile      string            `mapstructure:"profile"`
+	Chatwork     []ChatworkNotifer `mapstructure:"chatwork"`
+	EC2          []EC2Infomation   `mapstructure:"ec2"`
+	RDS          []RDSInfomation   `mapstructure:"rds"`
 }
 
-var config Config
+// ChatworkNotifer is Notify to Chatwork
+type ChatworkNotifer struct {
+	Roomid string   `mapstructure:"roomid"`
+	Apikey string   `mapstructure:"apikey"`
+	To     []string `mapstructure:"to"`
+}
 
-// Check is check AWS infomation.
-func Check(flag *CheckFlag) {
+// EC2Infomation is EC2 instance infomation
+type EC2Infomation struct {
+	Instances []string `mapstructure:"instances"`
+}
 
-	viper.SetConfigFile(flag.Config)
+// RDSInfomation is RDS instance infomation
+type RDSInfomation struct {
+	Instances []string `mapstructure:"instances"`
+}
+
+// Unmarshal is store yaml in a structure
+func Unmarshal(file string) (err error) {
+	viper.SetConfigFile(file)
 
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
 	if err := viper.Unmarshal(&config); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ConnectEC2 is Connect EC2 Service
+func ConnectEC2(session *session.Session, region string, profile string) (result *ec2.EC2) {
+	credential := credentials.NewSharedCredentials("", profile)
+
+	service := ec2.New(
+		session,
+		aws.NewConfig().WithRegion(region).WithCredentials(credential),
+	)
+	return service
+}
+
+// GetInstanceStatus is get list of instance status
+func GetInstanceStatus(service *ec2.EC2, instance string) (result *ec2.DescribeInstanceStatusOutput, err error) {
+	params := &ec2.DescribeInstanceStatusInput{
+		InstanceIds: []*string{
+			aws.String(instance),
+		},
+	}
+
+	response, err := service.DescribeInstanceStatus(params)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// NotifyChatwork is Notify Chatwork
+func NotifyChatwork(chatwork []ChatworkNotifer, host string, code string, description string, notbefore string) {
+	api := "https://api.chatwork.com/v2/rooms/"
+	path := "/messages"
+	completed := strings.Contains(description, "Completed")
+
+	if completed != true {
+		for _, notify := range chatwork {
+			roomid := notify.Roomid
+			apikey := notify.Apikey
+			url := api + roomid + path
+
+			body := "body="
+
+			for to := range notify.To {
+				body += "[To:" + strconv.Itoa(to) + "]"
+			}
+
+			body += "\n"
+			body += "[info][title]Goemon AWS EC2 Schedule Event Notify[/title]"
+			body += "Host : " + host + "\n"
+			body += "Code : " + code + "\n"
+			body += "Description : " + description + "\n"
+			body += "NotBefore : " + notbefore + " UTC [/info]"
+
+			request, err := http.NewRequest("POST", url, bytes.NewBufferString(body))
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			request.Header.Add("X-ChatWorkToken", apikey)
+			request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+			response, err := http.DefaultClient.Do(request)
+
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			fmt.Println(response)
+		}
+	}
+}
+
+// Check AWS infomation
+func Check(flag *CheckFlag) {
+
+	if err := Unmarshal(flag.Config); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
 
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
+	session := session.Must(session.NewSessionWithOptions(session.Options{
 		SharedConfigState: session.SharedConfigEnable,
 	}))
 
-	for _, i := range config.Notify {
-		roomid := i.RoomID
-		region := i.Region
-		profile := i.Profile
-		to := i.To
-		instances := i.Instances
+	for _, notifier := range config.Notifer {
+		region := notifier.Region
+		profile := notifier.Profile
+		notification := notifier.Notification
+		chatwork := notifier.Chatwork
 
-		cred := credentials.NewSharedCredentials("", profile)
-		svc := ec2.New(
-			sess,
-			aws.NewConfig().WithRegion(region).WithCredentials(cred),
-		)
+		ec2service := ConnectEC2(session, region, profile)
+		for _, ec2 := range notifier.EC2 {
+			for _, instance := range ec2.Instances {
+				statuses, err := GetInstanceStatus(ec2service, instance)
+				if err != nil {
+					fmt.Println(err)
+					os.Exit(1)
+				}
 
-		for _, j := range instances {
-			params := &ec2.DescribeInstanceStatusInput{
-				InstanceIds: []*string{
-					aws.String(j),
-				},
-			}
+				for _, status := range statuses.InstanceStatuses {
+					for _, events := range status.Events {
+						code := *events.Code
+						description := *events.Description
+						notbefore := events.NotBefore.Format(time.ANSIC)
 
-			resp, err := svc.DescribeInstanceStatus(params)
-			if err != nil {
-				panic(err)
-			}
-
-			for _, status := range resp.InstanceStatuses {
-				for _, event := range status.Events {
-					Code := event.Code
-					Description := event.Description
-					NotBefore := event.NotBefore
-
-					Iscompleted := strings.Contains(*Description, "Completed")
-
-					if Iscompleted != true {
-						url := "https://api.chatwork.com/v2/rooms/" + roomid + "/messages"
-
-						param := "body="
-
-						for _, k := range to {
-							param += "[To:" + k + "]"
+						switch notification {
+						case "chatwork":
+							NotifyChatwork(chatwork, instance, code, description, notbefore)
 						}
-
-						param += "\n"
-						param += "[info][title]Goemon AWS EC2 Schedule Event Notify[/title]"
-						param += "Host : " + j + "\n"
-						param += "Code : " + *Code + "\n"
-						param += "Description : " + *Description + "\n"
-						param += "NotBefore : " + NotBefore.Format(time.ANSIC) + " UTC [/info]"
-
-						request, error := http.NewRequest("POST", url, bytes.NewBufferString(param))
-						if error != nil {
-							log.Fatal(error)
-						}
-
-						apiKey := "5d885ec366178e84854d76e4a19f5784"
-						request.Header.Add("X-ChatWorkToken", apiKey)
-						request.Header.Add("Content-Type", "application/x-www-form-urlencoded")
-						response, error := http.DefaultClient.Do(request)
-						if error != nil {
-							log.Fatal(error)
-						}
-						fmt.Println(response)
 					}
 				}
 			}

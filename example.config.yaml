@@ -1,0 +1,27 @@
+notifier:
+  - 
+    notification: "chatwork" 
+    region: "ap-northeast-1"
+    profile: "XXXXXXXX"
+    chatwork:
+      -
+        roomid: "XXXXXXXX"
+        apikey: "XXXXXXXX"
+        to:
+          - "XXXXXXXX"
+          - "XXXXXXXX"
+      -
+        roomid: "XXXXXXXX"
+        apikey: "XXXXXXXX"
+        to:
+          - "XXXXXXXX"
+          - "XXXXXXXX"
+    ec2:
+      -
+        instances:
+          - "XXXXXXXX"
+          - "XXXXXXXX"
+    rds:
+      -
+         instances:
+          - XXXXXXXX

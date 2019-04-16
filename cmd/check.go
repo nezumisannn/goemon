@@ -22,6 +22,7 @@ import (
 
 var checkFlag goemon.CheckFlag
 
+// NewCmdCheck goemon check root command
 var NewCmdCheck = &cobra.Command{
 	Use:   "check",
 	Short: "check AWS infomation",
@@ -33,5 +34,5 @@ var NewCmdCheck = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(NewCmdCheck)
-	NewCmdCheck.PersistentFlags().StringVarP(&checkFlag.Config, "config", "", "config.yaml", "config file name")
+	NewCmdCheck.PersistentFlags().StringVarP(&checkFlag.Config, "config", "", "goemon.config.yaml", "config_file_path")
 }
