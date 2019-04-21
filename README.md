@@ -32,21 +32,38 @@
     ```
 
 - The following configuration file is required to check
-    - roomid specifies the group ID of the chatwork to notify
+    - notification describes the chat tool that sends the notification
     - region describes the region to get maintenance events
     - profile describes the name of the AWS account profile for acquiring maintenance events
-    - to specify the ID of the member you want to add a mention when making a notification
-    - instances specifies the ID of the instance for which you want to get maintenance events
+    - chatwork describes the information needed to notify chatwork
+        - roomid specifies the group ID of the chatwork to notify
+        - apikey describes the API key for sending notifications to chatwork. Must be issued in advance
+        - to specify the ID of the member you want to add a mention when making a notification
+    - ec2 describes the information of EC2 instance
+        - instances specifies the ID of the ec2 instance for which you want to get maintenance events
+    - rds describes the information of RDS instance
+        - instance describes the ARN of the RDS instance that gets pending actions
 
     ```
     notify:
       - 
-        roomid: "356482"
+        notification: "chatwork" 
         region: "ap-northeast-1"
         profile: "test_profile"
-        to:
-          - "1786285"
-        instances:
-          - "i-XXXXXXXXXXXXXXXXX"
-          - "i-XXXXXXXXXXXXXXXXX"
+        chatwork:
+          roomid: "1234567"
+          apikey: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+          to:
+            - "1234567"
+            - "7654321"
+        ec2:
+          -
+            instances:
+              - "i-XXXXXXXXXXXXXXXXX"
+              - "i-XXXXXXXXXXXXXXXXX"
+        rds:
+          -
+            instances:
+              - arn:aws:rds:ap-northeast-1:123456789123:cluster:XXXXXXXX
+              - arn:aws:rds:ap-northeast-1:123456789123:db:XXXXXXXX
     ```
