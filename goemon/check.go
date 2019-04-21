@@ -6,7 +6,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
+	"github.com/aws/aws-sdk-go/service/rds"
 	"github.com/spf13/viper"
 )
 
@@ -79,6 +79,16 @@ func ConnectEC2(session *session.Session, region string, profile string) (result
 	return service
 }
 
+// ConnectRDS is Connect RDS Service
+func ConnectRDS(session *session.Session, region string, profile string) (result *rds.RDS) {
+	credential := credentials.NewSharedCredentials("", profile)
+	service := rds.New(
+		session,
+		aws.NewConfig().WithRegion(region).WithCredentials(credential),
+	)
+	return service
+}
+
 // GetEC2InstanceStatus is get list of instance status
 func GetEC2InstanceStatus(service *ec2.EC2, instance string) (result *ec2.DescribeInstanceStatusOutput, err error) {
 	params := &ec2.DescribeInstanceStatusInput{
@@ -93,8 +103,20 @@ func GetEC2InstanceStatus(service *ec2.EC2, instance string) (result *ec2.Descri
 	return response, nil
 }
 
-// GetEC2InstanceEvent is get event information from EC2 instance status
-func GetEC2InstanceEvent(notifier Notifier, ec2service *ec2.EC2) (results [][]string) {
+// GetRDSPendingMaintenanceActions is get list of instance pending maintenance actions
+func GetRDSPendingMaintenanceActions(service *rds.RDS, instance string) (result *rds.DescribePendingMaintenanceActionsOutput, err error) {
+	params := &rds.DescribePendingMaintenanceActionsInput{
+		ResourceIdentifier: aws.String(instance),
+	}
+	response, err := service.DescribePendingMaintenanceActions(params)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
+// GetEC2InstanceEvents is get event information from EC2 instance status
+func GetEC2InstanceEvents(notifier Notifier, ec2service *ec2.EC2) (results [][]string) {
 	var result [][]string
 	var event []string
 	for _, ec2 := range notifier.EC2 {
@@ -111,6 +133,30 @@ func GetEC2InstanceEvent(notifier Notifier, ec2service *ec2.EC2) (results [][]st
 					event = append(event, *events.Description)
 					event = append(event, events.NotBefore.Format(time.ANSIC))
 					result = append(result, event)
+				}
+			}
+		}
+	}
+	return result
+}
+
+// GetRDSPendingMaintenanceActionDetails is get maintenance action infomation from RDS pending maintenance actions
+func GetRDSPendingMaintenanceActionDetails(notifier Notifier, rdsservice *rds.RDS) (results [][]string) {
+	var result [][]string
+	var detail []string
+	for _, rds := range notifier.RDS {
+		for _, instance := range rds.Instances {
+			actions, err := GetRDSPendingMaintenanceActions(rdsservice, instance)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			for _, action := range actions.PendingMaintenanceActions {
+				for _, details := range action.PendingMaintenanceActionDetails {
+					detail = append(detail, instance)
+					detail = append(detail, *details.Action)
+					detail = append(detail, *details.Description)
+					result = append(result, detail)
 				}
 			}
 		}
@@ -135,11 +181,11 @@ func PostChatwork(roomid string, apikey string, body string) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println(response)
+	defer response.Body.Close()
 }
 
-// NotifyChatwork is notify Chatwork message
-func NotifyChatwork(chatwork []ChatworkNotifer, ec2events [][]string) {
+// NotifyEC2Chatwork is notify EC2 schedule events to chatwork
+func NotifyEC2Chatwork(chatwork []ChatworkNotifer, ec2events [][]string) {
 	for _, ec2event := range ec2events {
 		completed := strings.Contains(ec2event[2], "Completed")
 		if completed != true {
@@ -148,8 +194,8 @@ func NotifyChatwork(chatwork []ChatworkNotifer, ec2events [][]string) {
 				apikey := notify.Apikey
 				body := "body="
 
-				for to := range notify.To {
-					body += "[To:" + strconv.Itoa(to) + "]"
+				for _, to := range notify.To {
+					body += "[To:" + to + "]"
 				}
 
 				body += "\n"
@@ -161,6 +207,29 @@ func NotifyChatwork(chatwork []ChatworkNotifer, ec2events [][]string) {
 
 				PostChatwork(roomid, apikey, body)
 			}
+		}
+	}
+}
+
+// NotifyRDSChatwork is notify RDS maintenance actions to chatwork
+func NotifyRDSChatwork(chatwork []ChatworkNotifer, rdsactions [][]string) {
+	for _, rdsaction := range rdsactions {
+		for _, notify := range chatwork {
+			roomid := notify.Roomid
+			apikey := notify.Apikey
+			body := "body="
+
+			for _, to := range notify.To {
+				body += "[To:" + to + "]"
+			}
+
+			body += "\n"
+			body += "[info][title]Goemon AWS RDS Maintenance Action Notify[/title]"
+			body += "ResourceIdentifier : " + rdsaction[0] + "\n"
+			body += "Action : " + rdsaction[1] + "\n"
+			body += "Description : " + rdsaction[2] + "[/info]"
+
+			PostChatwork(roomid, apikey, body)
 		}
 	}
 }
@@ -184,11 +253,15 @@ func Check(flag *CheckFlag) {
 		chatwork := notifier.Chatwork
 
 		ec2service := ConnectEC2(session, region, profile)
-		ec2events := GetEC2InstanceEvent(notifier, ec2service)
+		rdsservice := ConnectRDS(session, region, profile)
+
+		ec2events := GetEC2InstanceEvents(notifier, ec2service)
+		rdsactions := GetRDSPendingMaintenanceActionDetails(notifier, rdsservice)
 
 		switch notification {
 		case "chatwork":
-			NotifyChatwork(chatwork, ec2events)
+			NotifyEC2Chatwork(chatwork, ec2events)
+			NotifyRDSChatwork(chatwork, rdsactions)
 		}
 	}
 }
