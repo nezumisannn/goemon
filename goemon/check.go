@@ -118,7 +118,6 @@ func GetRDSPendingMaintenanceActions(service *rds.RDS, instance string) (result 
 // GetEC2InstanceEvents is get event information from EC2 instance status
 func GetEC2InstanceEvents(notifier Notifier, ec2service *ec2.EC2) (results [][]string) {
 	var result [][]string
-	var event []string
 	for _, ec2 := range notifier.EC2 {
 		for _, instance := range ec2.Instances {
 			statuses, err := GetEC2InstanceStatus(ec2service, instance)
@@ -128,6 +127,7 @@ func GetEC2InstanceEvents(notifier Notifier, ec2service *ec2.EC2) (results [][]s
 			}
 			for _, status := range statuses.InstanceStatuses {
 				for _, events := range status.Events {
+					var event []string
 					event = append(event, instance)
 					event = append(event, *events.Code)
 					event = append(event, *events.Description)
@@ -143,17 +143,18 @@ func GetEC2InstanceEvents(notifier Notifier, ec2service *ec2.EC2) (results [][]s
 // GetRDSPendingMaintenanceActionDetails is get maintenance action infomation from RDS pending maintenance actions
 func GetRDSPendingMaintenanceActionDetails(notifier Notifier, rdsservice *rds.RDS) (results [][]string) {
 	var result [][]string
-	var detail []string
 	for _, rds := range notifier.RDS {
 		for _, instance := range rds.Instances {
+			fmt.Println(instance)
 			actions, err := GetRDSPendingMaintenanceActions(rdsservice, instance)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
 			for _, action := range actions.PendingMaintenanceActions {
+				var detail []string
+				detail = append(detail, *action.ResourceIdentifier)
 				for _, details := range action.PendingMaintenanceActionDetails {
-					detail = append(detail, instance)
 					detail = append(detail, *details.Action)
 					detail = append(detail, *details.Description)
 					result = append(result, detail)
