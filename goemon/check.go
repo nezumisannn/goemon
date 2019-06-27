@@ -103,6 +103,20 @@ func GetEC2InstanceStatus(service *ec2.EC2, instance string) (result *ec2.Descri
 	return response, nil
 }
 
+// GetEC2Instances is get list of instance infomation
+func GetEC2Instances(service *ec2.EC2, instance string) (result *ec2.DescribeInstancesOutput, err error) {
+	params := &ec2.DescribeInstancesInput{
+		InstanceIds: []*string{
+			aws.String(instance),
+		},
+	}
+	response, err := service.DescribeInstances(params)
+	if err != nil {
+		return nil, err
+	}
+	return response, nil
+}
+
 // GetRDSPendingMaintenanceActions is get list of instance pending maintenance actions
 func GetRDSPendingMaintenanceActions(service *rds.RDS, instance string) (result *rds.DescribePendingMaintenanceActionsOutput, err error) {
 	params := &rds.DescribePendingMaintenanceActionsInput{
@@ -125,14 +139,31 @@ func GetEC2InstanceEvents(notifier Notifier, ec2service *ec2.EC2) (results [][]s
 				fmt.Println(err)
 				os.Exit(1)
 			}
+			instanceinfo, err := GetEC2Instances(ec2service, instance)
+			if err != nil {
+				fmt.Println(err)
+				os.Exit(1)
+			}
+			fmt.Println(instanceinfo.Reservations)
 			for _, status := range statuses.InstanceStatuses {
 				for _, events := range status.Events {
 					var event []string
-					event = append(event, instance)
-					event = append(event, *events.Code)
-					event = append(event, *events.Description)
-					event = append(event, events.NotBefore.Format(time.ANSIC))
-					result = append(result, event)
+					for _, reservations := range instanceinfo.Reservations {
+						for _, info := range reservations.Instances {
+							for _, tag := range info.Tags {
+								if *tag.Key == "Name" {
+									hostinfo := *tag.Value + "(" + *info.InstanceId + ")"
+									event = append(event, hostinfo)
+								}
+							}
+							event = append(event, *info.PublicIpAddress)
+							event = append(event, *info.PrivateIpAddress)
+							event = append(event, *events.Code)
+							event = append(event, *events.Description)
+							event = append(event, events.NotBefore.Format(time.ANSIC))
+							result = append(result, event)
+						}
+					}
 				}
 			}
 		}
@@ -188,7 +219,7 @@ func PostChatwork(roomid string, apikey string, body string) {
 // NotifyEC2Chatwork is notify EC2 schedule events to chatwork
 func NotifyEC2Chatwork(chatwork []ChatworkNotifer, ec2events [][]string) {
 	for _, ec2event := range ec2events {
-		completed := strings.Contains(ec2event[2], "Completed")
+		completed := strings.Contains(ec2event[4], "Completed")
 		if completed != true {
 			for _, notify := range chatwork {
 				roomid := notify.Roomid
@@ -202,9 +233,11 @@ func NotifyEC2Chatwork(chatwork []ChatworkNotifer, ec2events [][]string) {
 				body += "\n"
 				body += "[info][title]Goemon AWS EC2 Schedule Event Notify[/title]"
 				body += "Host : " + ec2event[0] + "\n"
-				body += "Code : " + ec2event[1] + "\n"
-				body += "Description : " + ec2event[2] + "\n"
-				body += "NotBefore : " + ec2event[3] + " UTC [/info]"
+				body += "PublicIpAddress : " + ec2event[1] + "\n"
+				body += "PrivateIpAddress : " + ec2event[2] + "\n"
+				body += "Code : " + ec2event[3] + "\n"
+				body += "Description : " + ec2event[4] + "\n"
+				body += "NotBefore : " + ec2event[5] + " UTC (JSTの場合は9時間加算) [/info]"
 
 				PostChatwork(roomid, apikey, body)
 			}
