@@ -144,7 +144,6 @@ func GetEC2InstanceEvents(notifier Notifier, ec2service *ec2.EC2) (results [][]s
 				fmt.Println(err)
 				os.Exit(1)
 			}
-			fmt.Println(instanceinfo.Reservations)
 			for _, status := range statuses.InstanceStatuses {
 				for _, events := range status.Events {
 					var event []string
