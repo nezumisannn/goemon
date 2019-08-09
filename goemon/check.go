@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
+	"github.com/aws/aws-sdk-go/aws/credentials/stscreds"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/ec2"
 	"github.com/aws/aws-sdk-go/service/rds"
@@ -35,6 +36,8 @@ type Notifier struct {
 	Notification string            `mapstructure:"notification"`
 	Region       string            `mapstructure:"region"`
 	Profile      string            `mapstructure:"profile"`
+	Assumerole   bool              `mapstructure:"assumerole"`
+	Rolearn      string            `mapstructure:"rolearn"`
 	Chatwork     []ChatworkNotifer `mapstructure:"chatwork"`
 	EC2          []EC2Infomation   `mapstructure:"ec2"`
 	RDS          []RDSInfomation   `mapstructure:"rds"`
@@ -67,6 +70,15 @@ func Unmarshal(file string) (err error) {
 		return err
 	}
 	return nil
+}
+
+// AssumeRoleWithSession gets temporary credentials needed to access other accounts
+func AssumeRoleWithSession(sess *session.Session, rolearn string) *session.Session {
+	credential := stscreds.NewCredentials(sess, rolearn)
+	config := aws.Config{Region: sess.Config.Region, Credentials: credential}
+	session := session.New(&config)
+
+	return session
 }
 
 // ConnectEC2 is Connect EC2 Service
@@ -284,6 +296,12 @@ func Check(flag *CheckFlag) {
 		profile := notifier.Profile
 		notification := notifier.Notification
 		chatwork := notifier.Chatwork
+		assumerole := notifier.Assumerole
+		rolearn := notifier.Rolearn
+
+		if assumerole {
+			session = AssumeRoleWithSession(session, rolearn)
+		}
 
 		ec2service := ConnectEC2(session, region, profile)
 		rdsservice := ConnectRDS(session, region, profile)
