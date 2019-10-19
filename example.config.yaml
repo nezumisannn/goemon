@@ -3,6 +3,8 @@ notifier:
     notification: "chatwork" 
     region: "ap-northeast-1"
     profile: "XXXXXXXX"
+    assumerole: true
+    rolearn: "XXXXXXXX"
     chatwork:
       -
         roomid: "XXXXXXXX"

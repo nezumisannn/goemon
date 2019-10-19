@@ -73,17 +73,13 @@ func Unmarshal(file string) (err error) {
 }
 
 // AssumeRoleWithSession gets temporary credentials needed to access other accounts
-func AssumeRoleWithSession(sess *session.Session, rolearn string) *session.Session {
-	credential := stscreds.NewCredentials(sess, rolearn)
-	config := aws.Config{Region: sess.Config.Region, Credentials: credential}
-	session := session.New(&config)
-
-	return session
+func AssumeRoleWithSession(session *session.Session, rolearn string) *credentials.Credentials {
+	credential := stscreds.NewCredentials(session, rolearn)
+	return credential
 }
 
 // ConnectEC2 is Connect EC2 Service
-func ConnectEC2(session *session.Session, region string, profile string) (result *ec2.EC2) {
-	credential := credentials.NewSharedCredentials("", profile)
+func ConnectEC2(session *session.Session, credential *credentials.Credentials, region string, profile string) (result *ec2.EC2) {
 	service := ec2.New(
 		session,
 		aws.NewConfig().WithRegion(region).WithCredentials(credential),
@@ -92,8 +88,7 @@ func ConnectEC2(session *session.Session, region string, profile string) (result
 }
 
 // ConnectRDS is Connect RDS Service
-func ConnectRDS(session *session.Session, region string, profile string) (result *rds.RDS) {
-	credential := credentials.NewSharedCredentials("", profile)
+func ConnectRDS(session *session.Session, credential *credentials.Credentials, region string, profile string) (result *rds.RDS) {
 	service := rds.New(
 		session,
 		aws.NewConfig().WithRegion(region).WithCredentials(credential),
@@ -287,10 +282,6 @@ func Check(flag *CheckFlag) {
 		os.Exit(1)
 	}
 
-	session := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-
 	for _, notifier := range config.Notifier {
 		region := notifier.Region
 		profile := notifier.Profile
@@ -299,12 +290,23 @@ func Check(flag *CheckFlag) {
 		assumerole := notifier.Assumerole
 		rolearn := notifier.Rolearn
 
-		if assumerole {
-			session = AssumeRoleWithSession(session, rolearn)
+		session, err := session.NewSessionWithOptions(session.Options{
+			Profile: profile,
+		})
+
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(1)
 		}
 
-		ec2service := ConnectEC2(session, region, profile)
-		rdsservice := ConnectRDS(session, region, profile)
+		credential := credentials.NewSharedCredentials("", profile)
+
+		if assumerole {
+			credential = AssumeRoleWithSession(session, rolearn)
+		}
+
+		ec2service := ConnectEC2(session, credential, region, profile)
+		rdsservice := ConnectRDS(session, credential, region, profile)
 
 		ec2events := GetEC2InstanceEvents(notifier, ec2service)
 		rdsactions := GetRDSPendingMaintenanceActionDetails(notifier, rdsservice)
