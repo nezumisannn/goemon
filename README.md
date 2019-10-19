@@ -35,6 +35,8 @@
     - notification describes the chat tool that sends the notification
     - region describes the region to get maintenance events
     - profile describes the name of the AWS account profile for acquiring maintenance events
+    - asumerole specifies whether to obtain temporary credentials from sts and connect
+    - rolearn specifies the ARN of the IAM Role that is specified when performing the assumeerole
     - chatwork describes the information needed to notify chatwork
         - roomid specifies the group ID of the chatwork to notify
         - apikey describes the API key for sending notifications to chatwork. Must be issued in advance
@@ -50,6 +52,8 @@
         notification: "chatwork" 
         region: "ap-northeast-1"
         profile: "test_profile"
+        assumerole: true
+        rolearn: "XXXXXXXX"
         chatwork:
           roomid: "1234567"
           apikey: "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
